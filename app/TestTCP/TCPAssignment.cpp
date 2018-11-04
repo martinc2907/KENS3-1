@@ -1,10 +1,4 @@
-/*
- * E_TCPAssignment.cpp
- *
- *  Created on: 2014. 11. 20.
- *      Author: Keunhong Lee
- */
-
+//3-1
 
 #include <E/E_Common.hpp>
 #include <E/Networking/E_Host.hpp>
@@ -205,7 +199,12 @@ void TCPAssignment::fake_write(UUID syscallUUID, int pid, int sockfd, void * buf
 	socket->w_buffer = NULL;
 	socket->w_n = 0;
 
+	//control flow- when rwnd is 0
 	N = minimum4(51200-socket->write_buffer_size, n, 512, socket->last_rwnd);
+	if(N == 0){
+		this->returnSystemCall(syscallUUID, 0);
+		return;
+	}
 
 	packet = makeDataPacket(buffer, N,
 		socket->source_ip, socket->dest_ip,
