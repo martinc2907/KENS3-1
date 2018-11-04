@@ -205,7 +205,7 @@ void TCPAssignment::fake_write(UUID syscallUUID, int pid, int sockfd, void * buf
 	socket->w_buffer = NULL;
 	socket->w_n = 0;
 
-	N = minimum3(51200-socket->write_buffer_size, n, 512);
+	N = minimum4(51200-socket->write_buffer_size, n, 512, socket->last_rwnd);
 
 	packet = makeDataPacket(buffer, N,
 		socket->source_ip, socket->dest_ip,
@@ -443,7 +443,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int param1_int, s
 	socket->dest_port = dest_port;
 
 	/* make syn packet */
-	Packet * packet = makeHeaderPacket(source_ip, dest_ip,source_port,dest_port,socket->sequence_number,0,0b00000010);
+	Packet * packet = makeHeaderPacket(source_ip, dest_ip,source_port,dest_port,socket->sequence_number,0,0b00000010,51200);
 
 	/* update socket states */
 	socket->sequence_number++;
@@ -487,7 +487,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int param1_int){
 		/* Make packet header */
 		struct TCP_header * header = make_header(socket->source_ip,socket->dest_ip, 
 			socket->source_port,socket->dest_port,
-			socket->sequence_number,0,0b00000001);
+			socket->sequence_number,0,0b00000001,51200);
 
 		/* Write header to packet */
 		packet->writeData(34,header,20);
@@ -514,7 +514,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int param1_int){
 		/* Make packet header */
 		struct TCP_header * header = make_header(socket->source_ip,socket->dest_ip, 
 			socket->source_port,socket->dest_port,
-			socket->sequence_number,0,0b00000001);
+			socket->sequence_number,0,0b00000001,51200);
 
 		/* Write header to packet */
 		packet->writeData(34,header,20);
@@ -541,7 +541,7 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int param1_int){
 		/* Make packet header */
 		struct TCP_header * header = make_header(socket->source_ip,socket->dest_ip, 
 			socket->source_port,socket->dest_port,
-			socket->sequence_number,0,0b00000001);
+			socket->sequence_number,0,0b00000001,51200);
 
 		/* Write header to packet */
 		packet->writeData(34,header,20);
@@ -692,7 +692,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			/* Make packet */
 			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,
 				ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),
-				socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010010);
+				socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010010,51200);
 
 			/* Update socket state */
 			socket->state = TCP_state::SYNRCVD;
@@ -726,7 +726,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			}
 
 			/* Make packet */
-			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010000);
+			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 			/* Update states */
 			socket->state = TCP_state::ESTAB;
@@ -746,7 +746,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			socket->sequence_number--;
 
 			/* Make packet header and write to packet */
-			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010010);
+			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010010,51200);
 
 			/* Update socket state */
 			socket->state = TCP_state::SYNRCVD;
@@ -776,7 +776,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			}
 
 			/* Make packet */
-			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010000);
+			new_packet = makeHeaderPacket(sender_dest_ip,sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number,ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 			/* Update states */
 			socket->state = TCP_state::ESTAB;
@@ -834,13 +834,16 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 
 		if(rcv_header->flags == 0b00000001){//fin
 			/* Make packet */
-			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000);
+			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 			/* Update states */
 			socket->state = TCP_state::CLOSE_WAIT;
 
 			if(socket->read_block){
 				this->returnSystemCall(socket->read_uuid, -1);
+			}
+			if(socket->write_block){//this one's not necessary.
+				this->returnSystemCall(socket->write_uuid, -1);
 			}
 
 			/* Free */
@@ -893,6 +896,8 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 					data_length = e->getSize()-54;
 				}
 
+				socket->last_rwnd = ntohs(rcv_header->window_size);
+
 				//unblock write
 				if(socket->write_block){
 					fake_write(socket->write_uuid, socket->pid, socket->fd, socket->w_buffer, socket->w_n);
@@ -913,10 +918,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 					return;
 				}
 
-
-				/* Send ACK */
-				Packet * new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip, ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+packet->getSize()-54,0b00010000);
-				this->sendPacket("IPv4", new_packet);
+				// /* Send ACK */
+				// Packet * new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip, ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+packet->getSize()-54,0b00010000);
+				// uint16_t rwnd = htons(51200-socket->read_buffer_size);
+				// new_packet->writeData(48, &rwnd,2);//rewrite rwnd.
+				// this->sendPacket("IPv4", new_packet);
 
 				/* Add to read buffer */
 				if(socket->read_buffer == NULL){
@@ -930,8 +936,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 					fake_read(socket->read_uuid, socket->pid, socket->fd, socket->r_buffer,socket->r_n );
 				}
 
-				free_resources(packet, rcv_header);
+				/* Send ACK */
+				Packet * new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip, ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+packet->getSize()-54,0b00010000,51200-socket->read_buffer_size);
+				this->sendPacket("IPv4", new_packet);
 
+				free_resources(packet, rcv_header);
 				return;
 			}
 
@@ -958,7 +967,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		else if(rcv_header->flags == 0b00000001){//fin
 
 			/* Make packet */
-			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000);
+			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 			/* Update states */
 			socket->state = TCP_state::CLOSING;
@@ -977,7 +986,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 			}
 
 			/* Make packet */
-			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000);
+			new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 			/* Update states */
 			socket->state = TCP_state::TIME_WAIT;
@@ -1009,7 +1018,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet* packet)
 		}
 
 		/* Make packet */
-		new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000);
+		new_packet = makeHeaderPacket(sender_dest_ip, sender_src_ip,ntohs(rcv_header->dest_port),ntohs(rcv_header->source_port),socket->sequence_number, ntohl(rcv_header->sequence_number)+1,0b00010000,51200);
 
 		/* Update states */
 		socket->state = TCP_state::TIME_WAIT;
@@ -1220,7 +1229,7 @@ struct socket * TCPAssignment::create_socket(int pid, int fd){
 	e->pid = pid;
 	e->sequence_number = rand();
 	e->last_ack = 0;
-	e->rwnd = 51200;
+	e->last_rwnd = 51200;
 
 	//write buffer
 	e->write_buffer = NULL;
@@ -1313,7 +1322,7 @@ Packet * TCPAssignment::makeDataPacket(
 
 	//buffer for tcp header and data
 	char * checksum_buffer = new char[20+data_size];
-	struct TCP_header * header = make_header(source_ip, dest_ip, source_port,dest_port,seq_number,ack_number, flags);
+	struct TCP_header * header = make_header(source_ip, dest_ip, source_port,dest_port,seq_number,ack_number, flags,51200);
 	header->checksum = 0;
 	memcpy(checksum_buffer, header, 20);
 	memcpy(checksum_buffer+20, buffer, data_size);
@@ -1335,13 +1344,13 @@ Packet * TCPAssignment::makeDataPacket(
 Packet * TCPAssignment::makeHeaderPacket(
 	uint32_t source_ip, uint32_t dest_ip,
 	uint16_t source_port, uint16_t dest_port,
-	uint32_t seq_number, uint32_t ack_number,uint8_t flags){
+	uint32_t seq_number, uint32_t ack_number,uint8_t flags, uint16_t window_size){
 
 	Packet * packet = this->allocatePacket(54);
 	packet->writeData(14 + 12, &source_ip, 4);
 	packet->writeData(14 + 16, &dest_ip, 4);
 
-	struct TCP_header * header = make_header(source_ip, dest_ip, source_port, dest_port,seq_number, ack_number,flags);
+	struct TCP_header * header = make_header(source_ip, dest_ip, source_port, dest_port,seq_number, ack_number,flags,window_size);
 	packet->writeData(34, header, 20);
 	delete(header);
 
@@ -1351,7 +1360,7 @@ Packet * TCPAssignment::makeHeaderPacket(
 struct TCP_header * TCPAssignment::make_header(
 	uint32_t source_ip, uint32_t dest_ip, 
 	uint16_t source_port, uint16_t dest_port, 
-	uint32_t seq_number, uint32_t ack_number,uint8_t flags){
+	uint32_t seq_number, uint32_t ack_number,uint8_t flags,uint16_t window_size){
 
 	struct TCP_header * header = new struct TCP_header;
 	header->source_port = htons(source_port);
@@ -1360,7 +1369,7 @@ struct TCP_header * TCPAssignment::make_header(
 	header->ack_number = htonl(ack_number);
 	header->first_byte = ((5)<<4);	//header size = 20bytes(5 words)
 	header->flags = flags;
-	header->window_size = htons(51200);
+	header->window_size = htons(window_size);
 	header->urgent_ptr = 0;
 	header->checksum = 0;
 	header->checksum = htons(~(this->tcp_sum((source_ip),(dest_ip),(uint8_t *)header,20)));
@@ -1381,16 +1390,18 @@ int TCPAssignment::minimum2(int a, int b){
 	}
 }
 
-int TCPAssignment::minimum3(int a, int b, int c){
+int TCPAssignment::minimum4(int a, int b, int c, int d){
 
-	if(a <= b && a <= c){
+	if(a <= b && a <= c && a<= d){
 		return a;
 	}
-	else if(b <= a && b <=c){
+	else if(b <= a && b <=c && b <= d){
 		return b;
 	}
-	else{
+	else if(c <= a && c <= b && c<= d){
 		return c;
+	}else{
+		return d;
 	}
 }
 

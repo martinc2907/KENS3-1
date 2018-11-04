@@ -59,7 +59,7 @@ struct socket{
 	uint32_t sequence_number;
 	uint32_t last_ack;
 
-	uint32_t rwnd;
+	uint32_t last_rwnd;
 
 	//write buffer
 	std::list< Packet *> * write_buffer;	//list of packets
@@ -139,13 +139,13 @@ private:
 
 
 	/* Making packet */
-	virtual struct TCP_header * make_header(uint32_t source_ip, uint32_t dest_ip, uint16_t source_port, uint16_t dest_port, uint32_t seq_number, uint32_t ack_number,uint8_t flags);
-	virtual Packet * makeHeaderPacket(uint32_t source_ip, uint32_t dest_ip, uint16_t source_port, uint16_t dest_port, uint32_t seq_number, uint32_t ack_number,uint8_t flags);
+	virtual struct TCP_header * make_header(uint32_t source_ip, uint32_t dest_ip, uint16_t source_port, uint16_t dest_port, uint32_t seq_number, uint32_t ack_number,uint8_t flags, uint16_t window_size);
+	virtual Packet * makeHeaderPacket(uint32_t source_ip, uint32_t dest_ip, uint16_t source_port, uint16_t dest_port, uint32_t seq_number, uint32_t ack_number,uint8_t flags,uint16_t window_size);
 	virtual Packet * makeDataPacket(void * buffer, uint32_t data_size,uint32_t source_ip, uint32_t dest_ip,uint16_t source_port, uint16_t dest_port,uint32_t seq_number, uint32_t ack_number,uint8_t flags);
 
 	virtual void free_resources(Packet * packet, struct TCP_header * header);
 	virtual int minimum2(int a, int b);
-	virtual int minimum3(int a, int b, int c);
+	virtual int minimum4(int a, int b, int c,int d);
 
 	/* Pending connection*/
 	virtual void find_and_remove_from_list(std::list<struct socket *> * list, struct socket * socket);
